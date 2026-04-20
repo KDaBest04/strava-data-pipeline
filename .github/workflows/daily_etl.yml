@@ -24,14 +24,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas sqlalchemy psycopg2-binary requests python-dotenv
 
-      - name: 4. Kiểm tra file và Chạy Pipeline
+      - name: 4. Run Pipeline
         env:
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
           STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-        run: |
-          echo "--- Danh sách file con bot đang thấy ---"
-          ls -R
-          echo "--- Bắt đầu chạy code ---"
-          python strava_etl_pipeline.py
+        run: python strava_etl_pipeline.py
