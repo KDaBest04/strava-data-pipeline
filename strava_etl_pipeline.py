@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+import numpy as np # Thêm thư viện này để xử lý null tốt hơn
 
 load_dotenv()
 
@@ -34,55 +35,53 @@ def extract_latest_data(access_token):
     params = {"per_page": 10, "page": 1}
 
     response = requests.get(url, headers=headers, params=params)
-    activities = response.json()
-    
-    # --- ĐOẠN CODE BẮT BỆNH ĐƯỢC THÊM VÀO ĐÂY ---
-    print(f"\n🔍 [DEBUG] MÁY QUÉT HOẠT ĐỘNG STRAVA:")
-    print(f"-> Tổng số hoạt động lấy được: {len(activities)}")
-    for act in activities:
-        distance_km = act.get('distance', 0) / 1000
-        print(f"   - Tên: {act.get('name')} | Loại môn: {act.get('type')} | Ngày: {act.get('start_date_local')} | Quãng đường: {distance_km:.2f}km")
-    print("-" * 40 + "\n")
-    # -------------------------------------------
-
-    return pd.DataFrame(activities)
+    return pd.DataFrame(response.json())
 
 
 def transform_data(df_raw):
     if df_raw.empty: return df_raw
     print("⚙️ Đang chuẩn hóa dữ liệu mới...")
 
-    # Giữ lại các cột quan trọng
-    df = df_raw[['id', 'name', 'distance', 'moving_time', 'type', 'start_date_local', 'average_speed']].copy()
-    
-    # --- LOG KIỂM TRA BỘ LỌC ---
-    run_count = len(df[df['type'] == 'Run'])
-    print(f"🔍 [DEBUG] Bộ lọc phát hiện có {run_count} hoạt động mang nhãn 'Run'.")
+    # GIỮ LẠI CỘT average_heartrate TỪ RAW DATA
+    required_cols = ['id', 'name', 'distance', 'moving_time', 'type', 'start_date_local', 'average_speed', 'average_heartrate']
+    # Chỉ lấy các cột tồn tại trong data thô (phòng trường hợp Strava không trả về)
+    existing_cols = [c for c in required_cols if c in df_raw.columns]
+    df = df_raw[existing_cols].copy()
     
     df = df[df['type'] == 'Run']  # Chỉ lấy chạy bộ
 
-    if df.empty:
-        print("⚠️ [CẢNH BÁO] Sau khi lọc môn 'Run', không còn dữ liệu nào. Có thể buổi chạy của bạn bị Strava gắn nhãn môn khác (ví dụ: TrailRun, Walk...)")
-        return df
+    if df.empty: return df
+
+    # --- CHỐNG LỖI NULL average_speed (KHI CHẠY MÁY/NHẬP TAY) ---
+    # Tự động tính vận tốc = quãng đường / thời gian nếu Strava trả về null
+    df['average_speed'] = df['average_speed'].fillna(
+        (df['distance'] / df['moving_time']).replace([np.inf, -np.inf], 0)
+    )
 
     df['distance_km'] = (df['distance'] / 1000).round(2)
     df['duration_min'] = (df['moving_time'] / 60).round(2)
 
     def calc_pace(speed):
-        if speed <= 0: return "00:00"
+        if pd.isna(speed) or speed <= 0: return "00:00"
         seconds_per_km = 1000 / speed
         return f"{int(seconds_per_km // 60):02d}:{int(seconds_per_km % 60):02d}"
 
     df['pace'] = df['average_speed'].apply(calc_pace)
     df['run_date'] = pd.to_datetime(df['start_date_local']).dt.date
+    
+    # Đảm bảo nhịp tim là kiểu số nguyên (nullable)
+    if 'average_heartrate' in df.columns:
+        df['average_heartrate'] = pd.to_numeric(df['average_heartrate'], errors='coerce').astype('Int64')
+    else:
+        df['average_heartrate'] = None # Tạo cột rỗng nếu API không trả về
 
-    return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace']]
+    return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate']]
 
 
 def load_incremental(df_new):
     """Chiến thuật Upsert: Chỉ nạp dữ liệu nếu ID chưa tồn tại"""
-    if df_new is None or df_new.empty:
-        print("☕ Không có buổi chạy bộ mới nào để đưa lên Database.")
+    if df_new.empty:
+        print("☕ Không có buổi chạy bộ mới nào.")
         return
 
     engine = create_engine(DATABASE_URL)
@@ -92,17 +91,18 @@ def load_incremental(df_new):
     df_new.to_sql('staging_activities', engine, if_exists='replace', index=False)
 
     # 2. Dùng SQL để INSERT từ bảng tạm vào bảng chính, chỉ lấy những ID chưa có
+    # --- CẬP NHẬT CÂU LỆNH SQL ĐỂ ĐẨY NHỊP TIM LÊN ---
     with engine.begin() as conn:
         query = text("""
-                     INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace)
-                     SELECT s.id, s.name, s.run_date, s.distance_km, s.duration_min, s.pace
+                     INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace, average_heartrate)
+                     SELECT s.id, s.name, s.run_date, s.distance_km, s.duration_min, s.pace, s.average_heartrate
                      FROM staging_activities s
                      WHERE NOT EXISTS (SELECT 1
                                        FROM silver_activities target
                                        WHERE target.id = s.id);
                      """)
         result = conn.execute(query)
-        print(f"✅ Đã cập nhật thêm {result.rowcount} buổi chạy mới vào Cloud!")
+        print(f"✅ Đã cập nhật thêm {result.rowcount} buổi chạy mới (có dữ liệu nhịp tim) vào Cloud!")
 
         # Xóa bảng tạm sau khi xong
         conn.execute(text("DROP TABLE staging_activities;"))
