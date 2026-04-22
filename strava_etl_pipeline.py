@@ -39,7 +39,7 @@ def extract_latest_data(access_token):
 def transform_data(df_raw):
     if df_raw.empty: return df_raw
     print("Normalization")
-    required_cols = ['id', 'name', 'distance', 'moving_time', 'type', 'start_date_local', 'average_speed', 'average_heartrate']
+    required_cols = ['id', 'name', 'distance', 'moving_time', 'type', 'start_date_local', 'average_speed', 'average_heartrate','average_cadence']
     existing_cols = [c for c in required_cols if c in df_raw.columns]
     df = df_raw[existing_cols].copy()
     df = df[df['type'] == 'Run']  
@@ -65,7 +65,12 @@ def transform_data(df_raw):
     else:
         df['average_heartrate'] = pd.Series(dtype='Int64')
 
-    return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate','average_speed']]
+    if 'average_cadence' in df.collumns:
+        df['average_cadence'] = (pd.to_numeric(df['average_cadence'], errors='coerce') * 2).round().astype('Int64')
+    else:
+        df['average_cadence'] = pd.Series(dtype='Int64')
+
+    return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate','average_speed','average_cadence']]
 
 
 def load_incremental(df_new):
@@ -78,8 +83,8 @@ def load_incremental(df_new):
     df_new.to_sql('staging_activities', engine, if_exists='replace', index=False)
     with engine.begin() as conn:
         query = text("""
-                     INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace, average_heartrate, average_speed)
-                     SELECT s.id, s.name, s.run_date, s.distance_km, s.duration_min, s.pace, s.average_heartrate, s.average_speed
+                     INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace, average_heartrate, average_speed, average_cadence)
+                     SELECT s.id, s.name, s.run_date, s.distance_km, s.duration_min, s.pace, s.average_heartrate, s.average_speed, s.average_cadence
                      FROM staging_activities s
                      WHERE NOT EXISTS (SELECT 1
                                        FROM silver_activities target
