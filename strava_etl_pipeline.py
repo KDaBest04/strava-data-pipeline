@@ -77,7 +77,7 @@ def transform_data(df_raw):
         # Chuẩn hóa tạo cột rỗng kiểu Int64 để tương thích hoàn toàn với Database
         df['average_heartrate'] = pd.Series(dtype='Int64')
 
-    return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate']]
+    return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate','average_speed']]
 
 
 def load_incremental(df_new):
