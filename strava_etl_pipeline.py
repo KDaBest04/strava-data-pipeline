@@ -34,7 +34,18 @@ def extract_latest_data(access_token):
     params = {"per_page": 10, "page": 1}
 
     response = requests.get(url, headers=headers, params=params)
-    return pd.DataFrame(response.json())
+    activities = response.json()
+    
+    # --- ĐOẠN CODE BẮT BỆNH ĐƯỢC THÊM VÀO ĐÂY ---
+    print(f"\n🔍 [DEBUG] MÁY QUÉT HOẠT ĐỘNG STRAVA:")
+    print(f"-> Tổng số hoạt động lấy được: {len(activities)}")
+    for act in activities:
+        distance_km = act.get('distance', 0) / 1000
+        print(f"   - Tên: {act.get('name')} | Loại môn: {act.get('type')} | Ngày: {act.get('start_date_local')} | Quãng đường: {distance_km:.2f}km")
+    print("-" * 40 + "\n")
+    # -------------------------------------------
+
+    return pd.DataFrame(activities)
 
 
 def transform_data(df_raw):
@@ -43,7 +54,16 @@ def transform_data(df_raw):
 
     # Giữ lại các cột quan trọng
     df = df_raw[['id', 'name', 'distance', 'moving_time', 'type', 'start_date_local', 'average_speed']].copy()
+    
+    # --- LOG KIỂM TRA BỘ LỌC ---
+    run_count = len(df[df['type'] == 'Run'])
+    print(f"🔍 [DEBUG] Bộ lọc phát hiện có {run_count} hoạt động mang nhãn 'Run'.")
+    
     df = df[df['type'] == 'Run']  # Chỉ lấy chạy bộ
+
+    if df.empty:
+        print("⚠️ [CẢNH BÁO] Sau khi lọc môn 'Run', không còn dữ liệu nào. Có thể buổi chạy của bạn bị Strava gắn nhãn môn khác (ví dụ: TrailRun, Walk...)")
+        return df
 
     df['distance_km'] = (df['distance'] / 1000).round(2)
     df['duration_min'] = (df['moving_time'] / 60).round(2)
@@ -61,8 +81,8 @@ def transform_data(df_raw):
 
 def load_incremental(df_new):
     """Chiến thuật Upsert: Chỉ nạp dữ liệu nếu ID chưa tồn tại"""
-    if df_new.empty:
-        print("☕ Không có buổi chạy bộ mới nào.")
+    if df_new is None or df_new.empty:
+        print("☕ Không có buổi chạy bộ mới nào để đưa lên Database.")
         return
 
     engine = create_engine(DATABASE_URL)
