@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
-import numpy as np # Thêm thư viện này để xử lý null tốt hơn
+import numpy as np 
 
 load_dotenv()
 
@@ -27,11 +27,9 @@ def get_fresh_access_token():
 
 
 def extract_latest_data(access_token):
-    """Chỉ lấy 10 hoạt động gần nhất để tối ưu"""
-    print("📥 Đang kiểm tra các buổi chạy mới nhất...")
+    print("Checking for new run")
     url = "https://www.strava.com/api/v3/athlete/activities"
     headers = {"Authorization": f"Bearer {access_token}"}
-    # Chỉ lấy trang 1, 10 buổi gần nhất là đủ để không bỏ sót
     params = {"per_page": 10, "page": 1}
 
     response = requests.get(url, headers=headers, params=params)
@@ -40,20 +38,13 @@ def extract_latest_data(access_token):
 
 def transform_data(df_raw):
     if df_raw.empty: return df_raw
-    print("⚙️ Đang chuẩn hóa dữ liệu mới...")
-
-    # GIỮ LẠI CỘT average_heartrate TỪ RAW DATA
+    print("Normalization")
     required_cols = ['id', 'name', 'distance', 'moving_time', 'type', 'start_date_local', 'average_speed', 'average_heartrate']
-    # Chỉ lấy các cột tồn tại trong data thô (phòng trường hợp Strava không trả về)
     existing_cols = [c for c in required_cols if c in df_raw.columns]
     df = df_raw[existing_cols].copy()
+    df = df[df['type'] == 'Run']  
     
-    df = df[df['type'] == 'Run']  # Chỉ lấy chạy bộ
-
     if df.empty: return df
-
-    # --- CHỐNG LỖI NULL average_speed (KHI CHẠY MÁY/NHẬP TAY) ---
-    # Tự động tính vận tốc = quãng đường / thời gian nếu Strava trả về null
     df['average_speed'] = df['average_speed'].fillna(
         (df['distance'] / df['moving_time']).replace([np.inf, -np.inf], 0)
     )
@@ -69,32 +60,22 @@ def transform_data(df_raw):
     df['pace'] = df['average_speed'].apply(calc_pace)
     df['run_date'] = pd.to_datetime(df['start_date_local']).dt.date
     
-    # Đảm bảo nhịp tim là kiểu số nguyên (nullable)
-    # Làm tròn nhịp tim (VD: 152.4 -> 152) rồi mới ép kiểu số nguyên để không bị lỗi cast
     if 'average_heartrate' in df.columns:
         df['average_heartrate'] = pd.to_numeric(df['average_heartrate'], errors='coerce').round().astype('Int64')
     else:
-        # Chuẩn hóa tạo cột rỗng kiểu Int64 để tương thích hoàn toàn với Database
         df['average_heartrate'] = pd.Series(dtype='Int64')
 
     return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate','average_speed']]
 
 
 def load_incremental(df_new):
-    """Chiến thuật Upsert: Chỉ nạp dữ liệu nếu ID chưa tồn tại"""
     if df_new.empty:
-        print("☕ Không có buổi chạy bộ mới nào.")
         return
 
     engine = create_engine(DATABASE_URL)
 
-    # 1. Đẩy dữ liệu mới vào một bảng tạm (staging_table)
-    print("⏳ Đang xử lý chống trùng lặp dữ liệu...")
+    print("Processing for data")
     df_new.to_sql('staging_activities', engine, if_exists='replace', index=False)
-
-    # 2. Dùng SQL để INSERT từ bảng tạm vào bảng chính, chỉ lấy những ID chưa có
-    # --- CẬP NHẬT CÂU LỆNH SQL ĐỂ ĐẨY NHỊP TIM LÊN ---
-    # 2. Dùng SQL để INSERT từ bảng tạm vào bảng chính
     with engine.begin() as conn:
         query = text("""
                      INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace, average_heartrate, average_speed)
@@ -105,9 +86,8 @@ def load_incremental(df_new):
                                        WHERE target.id = s.id);
                      """)
         result = conn.execute(query)
-        print(f"✅ Đã cập nhật thêm {result.rowcount} buổi chạy mới vào Cloud!")
+        print(f"Added {result.rowcount} run to DB")
 
-        # Xóa bảng tạm sau khi xong
         conn.execute(text("DROP TABLE staging_activities;"))
 
 
@@ -118,4 +98,4 @@ if __name__ == "__main__":
         clean_df = transform_data(raw_df)
         load_incremental(clean_df)
     except Exception as e:
-        print(f"❌ Pipeline gặp lỗi: {e}")
+        print(f"Error: {e}")
