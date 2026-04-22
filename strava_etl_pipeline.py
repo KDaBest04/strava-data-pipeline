@@ -70,10 +70,12 @@ def transform_data(df_raw):
     df['run_date'] = pd.to_datetime(df['start_date_local']).dt.date
     
     # Đảm bảo nhịp tim là kiểu số nguyên (nullable)
+    # Làm tròn nhịp tim (VD: 152.4 -> 152) rồi mới ép kiểu số nguyên để không bị lỗi cast
     if 'average_heartrate' in df.columns:
-        df['average_heartrate'] = pd.to_numeric(df['average_heartrate'], errors='coerce').astype('Int64')
+        df['average_heartrate'] = pd.to_numeric(df['average_heartrate'], errors='coerce').round().astype('Int64')
     else:
-        df['average_heartrate'] = None # Tạo cột rỗng nếu API không trả về
+        # Chuẩn hóa tạo cột rỗng kiểu Int64 để tương thích hoàn toàn với Database
+        df['average_heartrate'] = pd.Series(dtype='Int64')
 
     return df[['id', 'name', 'run_date', 'distance_km', 'duration_min', 'pace', 'average_heartrate']]
 
