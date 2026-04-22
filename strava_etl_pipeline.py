@@ -94,17 +94,18 @@ def load_incremental(df_new):
 
     # 2. Dùng SQL để INSERT từ bảng tạm vào bảng chính, chỉ lấy những ID chưa có
     # --- CẬP NHẬT CÂU LỆNH SQL ĐỂ ĐẨY NHỊP TIM LÊN ---
+    # 2. Dùng SQL để INSERT từ bảng tạm vào bảng chính
     with engine.begin() as conn:
         query = text("""
-                     INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace, average_heartrate)
-                     SELECT s.id, s.name, s.run_date, s.distance_km, s.duration_min, s.pace, s.average_heartrate
+                     INSERT INTO silver_activities (id, name, run_date, distance_km, duration_min, pace, average_heartrate, average_speed)
+                     SELECT s.id, s.name, s.run_date, s.distance_km, s.duration_min, s.pace, s.average_heartrate, s.average_speed
                      FROM staging_activities s
                      WHERE NOT EXISTS (SELECT 1
                                        FROM silver_activities target
                                        WHERE target.id = s.id);
                      """)
         result = conn.execute(query)
-        print(f"✅ Đã cập nhật thêm {result.rowcount} buổi chạy mới (có dữ liệu nhịp tim) vào Cloud!")
+        print(f"✅ Đã cập nhật thêm {result.rowcount} buổi chạy mới vào Cloud!")
 
         # Xóa bảng tạm sau khi xong
         conn.execute(text("DROP TABLE staging_activities;"))
