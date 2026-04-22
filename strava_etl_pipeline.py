@@ -65,7 +65,7 @@ def transform_data(df_raw):
     else:
         df['average_heartrate'] = pd.Series(dtype='Int64')
 
-    if 'average_cadence' in df.collumns:
+    if 'average_cadence' in df.columns:
         df['average_cadence'] = (pd.to_numeric(df['average_cadence'], errors='coerce') * 2).round().astype('Int64')
     else:
         df['average_cadence'] = pd.Series(dtype='Int64')
