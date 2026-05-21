@@ -1,0 +1,28 @@
+# =========================
+# BẢO MẬT (QUAN TRỌNG NHẤT)
+# =========================
+.env*
+.env
+.env.local
+*.pem
+secrets.json
+
+# =========================
+# NEXT.JS & JAVASCRIPT
+# =========================
+node_modules/
+.next/
+out/
+build/
+.DS_Store
+*.log
+
+# =========================
+# PYTHON & PIPELINE
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.pytest_cache/

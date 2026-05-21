@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Ép toàn bộ ứng dụng chạy ở chế độ Light Mode, chống xung đột Dark Mode của Ubuntu */
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f3f4f6; /* bg-gray-100 */
+  color: #111827; /* text-gray-900 */
+}
